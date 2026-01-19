@@ -102,8 +102,6 @@ eval "$(ssh-agent -s)" >/dev/null
 ssh-add ~/.ssh/id_ed25519 >/dev/null 2>&1
 
 # ======================================================================
-# 💡 MENSAGEM DE LOGIN
+# 💡 FIM DA CONFIGURAÇÃO
 # ======================================================================
-echo -e "\e[32mBem-vindo, Wellber! Sistema pronto com ZSH e Oh My Zsh configurado.\e[0m"
-echo -e "\e[34m$(uname -n)\e[0m  -  Kernel: $(uname -r)  -  $(lsb_release -d 2>/dev/null | cut -f2)\n"
 

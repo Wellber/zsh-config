@@ -156,7 +156,19 @@ configure_zshrc() {
         fi
     fi
 }
-
+install_chsh() {
+    if ! command -v chsh &> /dev/null; then
+        log_info "chsh não encontrado. Instalando util-linux..."
+        eval "$PKG_INSTALL util-linux" 2>/dev/null
+        if command -v chsh &> /dev/null; then
+            log_success "chsh instalado com sucesso!"
+        else
+            log_error "Falha ao instalar chsh. Verifique manualmente."
+        fi
+    else
+        log_warn "chsh já está instalado. Pulando..."
+    fi
+}
 # Define ZSH como shell padrão
 set_default_shell() {
     if [ "$SHELL" != "$(which zsh)" ]; then
@@ -225,6 +237,7 @@ main() {
     fi
 
     detect_package_manager
+    install_chsh
     install_dependencies
     install_oh_my_zsh
     install_powerlevel10k

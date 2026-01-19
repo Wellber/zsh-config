@@ -1,7 +1,7 @@
 #!/bin/bash
 # ======================================================================
 # Script de Instalação ZSH + Oh My Zsh - Wellber Santos
-# Versão: 1.0
+# Versão: 1.1
 # Uso: curl -fsSL <url>/install.sh | bash
 #      ou: ./install.sh
 # ======================================================================
@@ -52,12 +52,16 @@ detect_package_manager() {
 
 # Instala dependências
 install_dependencies() {
-    log_info "Atualizando repositórios..."
-    eval "$PKG_UPDATE" 2>/dev/null
+    if ! command -v zsh &> /dev/null || ! command -v git &> /dev/null || ! command -v curl &> /dev/null || ! command -v wget &> /dev/null; then
+        log_info "Atualizando repositórios..."
+        eval "$PKG_UPDATE" 2>/dev/null
 
-    log_info "Instalando dependências (zsh, git, curl, wget)..."
-    eval "$PKG_INSTALL zsh git curl wget" 2>/dev/null
-    log_success "Dependências instaladas!"
+        log_info "Instalando dependências (zsh, git, curl, wget)..."
+        eval "$PKG_INSTALL zsh git curl wget" 2>/dev/null
+        log_success "Dependências instaladas!"
+    else
+        log_warn "Dependências já instaladas. Pulando..."
+    fi
 }
 
 # Instala Oh My Zsh
@@ -127,8 +131,12 @@ configure_zshrc() {
 
     # Backup do .zshrc atual
     if [ -f "$HOME/.zshrc" ]; then
-        cp "$HOME/.zshrc" "$HOME/.zshrc.backup.$(date +%Y%m%d%H%M%S)"
-        log_info "Backup criado: ~/.zshrc.backup.*"
+        if ! cmp -s "$HOME/.zshrc" "$HOME/.zshrc.backup.*" 2>/dev/null; then
+            cp "$HOME/.zshrc" "$HOME/.zshrc.backup.$(date +%Y%m%d%H%M%S)"
+            log_info "Backup criado: ~/.zshrc.backup.*"
+        else
+            log_warn "O arquivo .zshrc já possui backup idêntico. Pulando backup."
+        fi
     fi
 
     # Obtém o diretório do script
@@ -141,9 +149,11 @@ configure_zshrc() {
     else
         # Se executado via curl, baixa o .zshrc
         log_info "Baixando .zshrc do repositório..."
-        curl -fsSL https://raw.githubusercontent.com/Wellber/zsh-config/main/.zshrc -o "$HOME/.zshrc" 2>/dev/null || {
+        if curl -fsSL https://raw.githubusercontent.com/Wellber/zsh-config/main/.zshrc -o "$HOME/.zshrc" 2>/dev/null; then
+            log_success ".zshrc baixado com sucesso!"
+        else
             log_warn "Não foi possível baixar .zshrc. Usando configuração padrão do Oh My Zsh."
-        }
+        fi
     fi
 }
 
@@ -167,7 +177,6 @@ install_fonts() {
     log_info "Deseja instalar as fontes Nerd Fonts (recomendado para Powerlevel10k)? [s/N]"
     read -r response
     if [[ "$response" =~ ^[Ss]$ ]]; then
-        log_info "Instalando fontes MesloLGS NF..."
         FONT_DIR="$HOME/.local/share/fonts"
         mkdir -p "$FONT_DIR"
 
@@ -178,16 +187,21 @@ install_fonts() {
             "MesloLGS%20NF%20Bold%20Italic.ttf"
         )
 
-        for font in "${FONTS[@]}"; do
-            curl -fsSL "https://github.com/romkatv/powerlevel10k-media/raw/master/$font" -o "$FONT_DIR/${font//%20/ }" 2>/dev/null
-        done
+        # Verifica se as fontes já estão instaladas
+        if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
+            log_info "Instalando fontes MesloLGS NF..."
+            for font in "${FONTS[@]}"; do
+                curl -fsSL "https://github.com/romkatv/powerlevel10k-media/raw/master/$font" -o "$FONT_DIR/${font//%20/ }" 2>/dev/null
+            done
 
-        # Atualiza cache de fontes
-        if command -v fc-cache &> /dev/null; then
-            fc-cache -f "$FONT_DIR"
+            # Atualiza cache de fontes
+            if command -v fc-cache &> /dev/null; then
+                fc-cache -f "$FONT_DIR"
+            fi
+            log_success "Fontes instaladas! Configure seu terminal para usar 'MesloLGS NF'."
+        else
+            log_warn "Fontes Nerd Fonts já instaladas. Pulando..."
         fi
-
-        log_success "Fontes instaladas! Configure seu terminal para usar 'MesloLGS NF'."
     fi
 }
 
@@ -202,7 +216,12 @@ main() {
 
     # Verifica se está rodando como root
     if [ "$EUID" -eq 0 ]; then
-        log_warn "Executando como root. Recomendado executar como usuário normal."
+        log_warn "Executando como root. Recomendado executar como usuário normal. Deseja continuar? [s/N]"
+        read -r response
+        if ! [[ "$response" =~ ^[Ss]$ ]]; then
+            log_error "Instalação cancelada."
+            exit 1
+        fi
     fi
 
     detect_package_manager
@@ -228,10 +247,10 @@ main() {
     echo ""
     log_info "Ou faça logout e login novamente."
     echo ""
-    log_info "Na primeira execução, o Powerlevel10k irá iniciar o assistente"
-    log_info "de configuração automaticamente."
+    log_info "Na primeira execução, o Powerlevel10k irá iniciar o assistente de configuração automaticamente."
     echo ""
 }
 
 # Executa
 main "$@"
+

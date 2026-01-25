@@ -1,7 +1,7 @@
 #!/bin/bash
 # ======================================================================
 # Script de Instalação ZSH + Oh My Zsh - Wellber Santos
-# Versão: 1.0
+# Versão: 2.0
 # Uso: curl -fsSL <url>/install.sh | bash
 #      ou: ./install.sh
 # ======================================================================
@@ -121,7 +121,7 @@ install_plugins() {
     log_success "Plugins instalados!"
 }
 
-# Configura o .zshrc
+# Configura o .zshrc - sempre baixa do GitHub
 configure_zshrc() {
     log_info "Configurando .zshrc..."
 
@@ -131,35 +131,201 @@ configure_zshrc() {
         log_info "Backup criado: ~/.zshrc.backup.*"
     fi
 
-    # Obtém o diretório do script
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-    # Copia o .zshrc configurado
-    if [ -f "$SCRIPT_DIR/.zshrc" ]; then
-        cp "$SCRIPT_DIR/.zshrc" "$HOME/.zshrc"
-        log_success ".zshrc configurado a partir do repositório!"
+    # Sempre baixa do GitHub para garantir versão mais recente
+    log_info "Baixando .zshrc do GitHub..."
+    if curl -fsSL https://raw.githubusercontent.com/Wellber/zsh-config/main/.zshrc -o "$HOME/.zshrc" 2>/dev/null; then
+        log_success ".zshrc baixado e configurado!"
     else
-        # Se executado via curl, baixa o .zshrc
-        log_info "Baixando .zshrc do repositório..."
-        curl -fsSL https://raw.githubusercontent.com/Wellber/zsh-config/main/.zshrc -o "$HOME/.zshrc" 2>/dev/null || {
+        # Fallback: tenta usar arquivo local se existir
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        if [ -f "$SCRIPT_DIR/.zshrc" ]; then
+            cp "$SCRIPT_DIR/.zshrc" "$HOME/.zshrc"
+            log_success ".zshrc configurado a partir do repositório local!"
+        else
             log_warn "Não foi possível baixar .zshrc. Usando configuração padrão do Oh My Zsh."
-        }
+        fi
     fi
 }
 
 # Define ZSH como shell padrão
 set_default_shell() {
-    if [ "$SHELL" != "$(which zsh)" ]; then
-        log_info "Definindo ZSH como shell padrão..."
-        if chsh -s "$(which zsh)" 2>/dev/null; then
-            log_success "ZSH definido como shell padrão!"
-        else
-            log_warn "Não foi possível alterar o shell automaticamente."
-            log_warn "Execute manualmente: chsh -s \$(which zsh)"
-        fi
-    else
+    ZSH_PATH="$(which zsh)"
+    CURRENT_USER="$(whoami)"
+
+    if [ "$SHELL" = "$ZSH_PATH" ]; then
         log_info "ZSH já é o shell padrão."
+        return 0
     fi
+
+    log_info "Definindo ZSH como shell padrão..."
+
+    # Verifica se zsh está em /etc/shells
+    if ! grep -q "$ZSH_PATH" /etc/shells 2>/dev/null; then
+        log_info "Adicionando ZSH ao /etc/shells..."
+        echo "$ZSH_PATH" | sudo tee -a /etc/shells >/dev/null
+    fi
+
+    # Método 1: Tenta usar chsh
+    if command -v chsh &> /dev/null; then
+        log_info "Tentando alterar shell via chsh..."
+        if chsh -s "$ZSH_PATH" 2>/dev/null; then
+            log_success "ZSH definido como shell padrão via chsh!"
+            return 0
+        fi
+        log_warn "chsh falhou, tentando método alternativo..."
+    fi
+
+    # Método 2: Tenta instalar chsh via util-linux
+    if ! command -v chsh &> /dev/null; then
+        log_info "chsh não encontrado. Tentando instalar..."
+        case "$PKG_MANAGER" in
+            apt-get)
+                sudo apt-get install -y -qq passwd 2>/dev/null || true
+                ;;
+            dnf|yum)
+                sudo $PKG_MANAGER install -y -q util-linux-user 2>/dev/null || true
+                ;;
+            pacman)
+                sudo pacman -S --noconfirm shadow 2>/dev/null || true
+                ;;
+            zypper)
+                sudo zypper install -y -q shadow 2>/dev/null || true
+                ;;
+        esac
+
+        # Tenta novamente com chsh
+        if command -v chsh &> /dev/null; then
+            if chsh -s "$ZSH_PATH" 2>/dev/null; then
+                log_success "ZSH definido como shell padrão via chsh!"
+                return 0
+            fi
+        fi
+    fi
+
+    # Método 3: Altera diretamente no /etc/passwd (fallback)
+    log_warn "Alterando shell diretamente no /etc/passwd..."
+    if sudo sed -i "s|^\($CURRENT_USER:.*:\)[^:]*$|\1$ZSH_PATH|" /etc/passwd 2>/dev/null; then
+        # Verifica se a alteração foi feita
+        if grep -q "^$CURRENT_USER:.*:$ZSH_PATH$" /etc/passwd; then
+            log_success "ZSH definido como shell padrão via /etc/passwd!"
+            return 0
+        fi
+    fi
+
+    # Método 4: Usa usermod como última tentativa
+    log_warn "Tentando via usermod..."
+    if sudo usermod -s "$ZSH_PATH" "$CURRENT_USER" 2>/dev/null; then
+        log_success "ZSH definido como shell padrão via usermod!"
+        return 0
+    fi
+
+    log_error "Não foi possível alterar o shell automaticamente."
+    log_warn "Execute manualmente: sudo usermod -s $ZSH_PATH $CURRENT_USER"
+    return 1
+}
+
+# Instala e configura MOTD
+install_motd() {
+    log_info "Configurando MOTD (Message of the Day)..."
+
+    # Cria script MOTD
+    MOTD_SCRIPT="/etc/profile.d/motd-info.sh"
+
+    sudo tee "$MOTD_SCRIPT" > /dev/null << 'MOTD_EOF'
+#!/bin/bash
+# ======================================================================
+# MOTD - System Information - Wellber Santos
+# ======================================================================
+
+# Cores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m'
+
+# Coleta informações
+HOSTNAME=$(hostname -f 2>/dev/null || hostname)
+KERNEL=$(uname -r)
+UPTIME=$(uptime -p 2>/dev/null || uptime | sed 's/.*up/up/')
+LOAD_AVG=$(cat /proc/loadavg | awk '{print $1", "$2", "$3}')
+
+# CPU Utilization
+CPU_UTIL=$(top -bn1 | grep "Cpu(s)" | awk '{print 100 - $8}' 2>/dev/null || echo "N/A")
+if [ "$CPU_UTIL" = "N/A" ]; then
+    CPU_UTIL=$(vmstat 1 2 | tail -1 | awk '{print 100-$15}' 2>/dev/null || echo "N/A")
+fi
+
+# Memory
+MEM_TOTAL=$(free -h | awk '/^Mem:/{print $2}')
+MEM_USED=$(free -h | awk '/^Mem:/{print $3}')
+MEM_PERCENT=$(free | awk '/^Mem:/{printf "%.1f", $3/$2 * 100}')
+
+# IPs do servidor
+IPS=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | tr '\n' ' ')
+if [ -z "$IPS" ]; then
+    IPS=$(hostname -I 2>/dev/null || echo "N/A")
+fi
+
+# Usuários logados
+LOGGED_USERS=$(who | wc -l)
+USERS_LIST=$(who | awk '{print $1}' | sort -u | tr '\n' ', ' | sed 's/,$//')
+
+# Distro
+if [ -f /etc/os-release ]; then
+    DISTRO=$(grep "PRETTY_NAME" /etc/os-release | cut -d'"' -f2)
+else
+    DISTRO=$(uname -o)
+fi
+
+# Exibe MOTD
+echo ""
+echo -e "${CYAN}======================================================================${NC}"
+echo -e "${WHITE}                    SYSTEM INFORMATION                               ${NC}"
+echo -e "${CYAN}======================================================================${NC}"
+echo ""
+echo -e "${GREEN}  Hostname:${NC}       $HOSTNAME"
+echo -e "${GREEN}  Distro:${NC}         $DISTRO"
+echo -e "${GREEN}  Kernel:${NC}         $KERNEL"
+echo -e "${GREEN}  Uptime:${NC}         $UPTIME"
+echo ""
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${YELLOW}  NETWORK${NC}"
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${GREEN}  IP Address:${NC}     $IPS"
+echo ""
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${YELLOW}  RESOURCES${NC}"
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${GREEN}  CPU Usage:${NC}      ${CPU_UTIL}%"
+echo -e "${GREEN}  Load Average:${NC}   $LOAD_AVG"
+echo -e "${GREEN}  Memory:${NC}         ${MEM_USED} / ${MEM_TOTAL} (${MEM_PERCENT}%)"
+echo ""
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${YELLOW}  USERS${NC}"
+echo -e "${CYAN}----------------------------------------------------------------------${NC}"
+echo -e "${GREEN}  Logged Users:${NC}   $LOGGED_USERS"
+echo -e "${GREEN}  Users:${NC}          $USERS_LIST"
+echo ""
+echo -e "${CYAN}======================================================================${NC}"
+echo ""
+MOTD_EOF
+
+    sudo chmod +x "$MOTD_SCRIPT"
+
+    # Desabilita MOTD padrão do sistema se existir
+    if [ -f /etc/motd ]; then
+        sudo mv /etc/motd /etc/motd.bak 2>/dev/null || true
+    fi
+
+    # Desabilita scripts padrão do update-motd se existirem
+    if [ -d /etc/update-motd.d ]; then
+        sudo chmod -x /etc/update-motd.d/* 2>/dev/null || true
+    fi
+
+    log_success "MOTD configurado!"
 }
 
 # Instala fontes recomendadas (opcional)
@@ -196,7 +362,7 @@ main() {
     echo ""
     echo "======================================================================"
     echo "   Instalador ZSH + Oh My Zsh + Powerlevel10k"
-    echo "   Por: Wellber Santos"
+    echo "   Por: Wellber Santos - v2.0"
     echo "======================================================================"
     echo ""
 
@@ -212,6 +378,7 @@ main() {
     install_plugins
     configure_zshrc
     set_default_shell
+    install_motd
 
     # Pergunta sobre fontes apenas se for interativo
     if [ -t 0 ]; then

@@ -173,7 +173,9 @@ install_chsh() {
 set_default_shell() {
     if [ "$SHELL" != "$(which zsh)" ]; then
         log_info "Definindo ZSH como shell padrão..."
-        if chsh -s "$(which zsh)" 2>/dev/null; then
+        if sudo chsh -s "$(which zsh)" "$USER" 2>/dev/null; then
+            log_success "ZSH definido como shell padrão!"
+        elif chsh -s "$(which zsh)" < /dev/null 2>/dev/null; then
             log_success "ZSH definido como shell padrão!"
         else
             log_warn "Não foi possível alterar o shell automaticamente."
